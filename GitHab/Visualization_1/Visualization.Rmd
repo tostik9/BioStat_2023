@@ -1,0 +1,342 @@
+---
+title: "Visualization"
+author: "Anatoliy Sozontov"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+theme_set(theme_minimal())
+library(ggpubr)
+library(cowplot)
+library(viridis)
+
+
+```
+
+```{r Data load}
+raw_data <- read_csv("insurance_cost.csv")
+```
+### Гистограммы для нумерик перемменных
+
+```{r hist for numeric}
+data_numeric <- raw_data[, sapply(raw_data, is.numeric)]
+names_numeric <-  colnames(data_numeric)
+
+
+for (name in names_numeric){
+                            hist <- ggplot(data = data_numeric, aes(x = .data[[name]])) +
+                                   geom_histogram(bins = 10) +
+                                   theme_minimal() +
+                                   ggtitle(name)
+                            
+                            print(hist)
+                          }
+
+```
+
+### График плотности по колонке charges.
+
+```{r density graph by charges column}
+
+#рассчитаем медиану и среднее для верикальных линий
+charges_mean <- round(mean(data_numeric$charges), 1)
+charges_median <- round(median(data_numeric$charges), 1)
+
+density_gg <- ggplot(data=data_numeric, aes(x = charges))+
+              geom_density()+
+              geom_vline(aes(xintercept = charges_mean), color="red")+
+               annotate("text", 
+               x= charges_mean + 6000, 
+               y=5 * 10^-5, 
+               label=paste0("Mean=", charges_mean),
+               color = "red")+
+              geom_vline(aes(xintercept = charges_median), color="blue")+
+              annotate("text", 
+               x= charges_median - 6000, 
+               y=2 * 10^-5, 
+               label=paste0("Median=", charges_median),
+               color = "blue")+
+               labs(x = "Доход", y = "Плотность выплат")+
+               ggtitle("Плотность распределения выплат")+
+               theme_minimal()+
+               theme(plot.title = element_text(hjust = 0.5))
+
+print(density_gg)
+
+```
+
+Сделайте три box_plot по отношению переменных charges и (1) sex (2) smoker (3)
+region. Подберите тему для графика. Назовите оси.
+
+```{r}
+
+list_of_vars <- c("sex", "smoker", "region")
+plot_list <- list()
+
+for (var in list_of_vars) {
+  
+  title <- switch (var,
+    sex = "Распределение уровня выплаты относительно пола",
+    smoker = "Распределение уровня выплаты относительно курения",
+    region = "Распределение уровня выплаты относительно региона"
+    )
+  
+  y_label <- switch (var,
+    sex = "Пол",
+    smoker = "Статус курения",
+    region = "Регион проживания"
+    )
+
+charges_box <- ggplot() +
+          geom_boxplot(data = raw_data, 
+                       aes(x = charges, y = .data[[var]], fill = .data[[var]])) +
+          theme_minimal() +
+          ggtitle(title) + 
+          labs(y = y_label, x = 'Уровень выплаты') +
+          theme( # Ниже идут настройки тем (их огромное количество, но мы меняем лишь две)
+            title = element_text(size = 12), # Задаем стандартный размер текста для любого элемента графика
+            axis.title.y = element_text(size=14) # Задаём размер для названия оси y отдельно + 
+            ) +
+          coord_flip() # Переворачиваем оси
+
+plot_list[[var]] <- charges_box
+
+}
+
+print(plot_list)
+```
+
+Объедините графики из заданий 3 и 4 в один так, чтобы сверху шёл один график из
+задания 3, а под ним 3 графика из задания 4. Сделайте общее название для графика.
+```{r}
+
+plot_list_combined <- list(
+  sex = plot_list[["sex"]],
+  smoker = plot_list[["smoker"]],
+  region = plot_list[["region"]]
+)
+
+common_title <- "Плотность выплаты и зависимости от категорий."
+
+
+plot_list[["sex"]] <- plot_list[["sex"]] +
+  ggtitle(NULL) +
+  guides(fill = FALSE)
+  
+plot_list[["smoker"]] <- plot_list[["smoker"]] +
+  ggtitle(NULL) +
+  guides(fill = FALSE)
+
+plot_list[["region"]] <- plot_list[["region"]] +
+  ggtitle(NULL) +
+  guides(fill = FALSE)
+
+density_gg <- density_gg+
+  ggtitle(NULL) +
+  guides(fill = FALSE) 
+
+
+combined_plot_densite <- ggarrange(
+  density_gg,
+  ncol = 1  # Установите количество столбцов на 1 для 'density_gg'
+)
+
+# Используйте еще один вызов ggarrange для размещения остальных графиков
+combined_plot_box <- ggarrange(
+  plot_list[["sex"]],
+  plot_list[["smoker"]],
+  plot_list[["region"]],
+  ncol = 3  # Установите количество столбцов на 3 для остальных графиков
+)
+
+combined_plot_all<- ggarrange(
+  combined_plot_densite,
+  combined_plot_box,
+  ncol = 1,
+  nrow = 2
+)
+
+combined_plot_all <- ggdraw() +
+  draw_plot(combined_plot_all, width = 1, height = 1) +
+  draw_label(common_title, size = 14, x = 0.7, y = 0.97)
+
+print(combined_plot_all)
+
+
+```
+
+### Сделайте фасет графика из задания 3 по колонке region.
+```{r}
+
+density_gg <- ggplot(data=raw_data, aes(x = charges))+
+              geom_density()+
+              geom_vline(aes(xintercept = charges_mean), color="red")+
+               annotate("text", 
+               x= charges_mean + 25000, # Изменим привязку для отображения подписей вертикальных осей
+               y=5 * 10^-5, 
+               label=paste0("Mean=", charges_mean),
+               color = "red")+
+              geom_vline(aes(xintercept = charges_median), color="blue")+
+              annotate("text", 
+               x= charges_median + 25000, 
+               y=2 * 10^-5, 
+               label=paste0("Median=", charges_median),
+               color = "blue")+
+               labs(x = "Доход", y = "Плотность выплаты")+
+               ggtitle("Плотность распределения выплаты")+
+               facet_grid(. ~ region) + # Добавим разбиение по региону
+               theme_minimal()+
+               theme(plot.title = element_text(hjust = 0.5))
+
+print(density_gg)
+  
+```
+Постройте scatter plot отношения переменных age и charges. Добавьте названия
+осей, название графика и тему. Сделайте так, чтобы числа по оси Х отображались
+14 шрифтом.
+
+### scatter plot отношения переменных age и charges + линия тренда
+
+```{r scatter plot age and charges}
+raw_data %>%
+  ggplot(aes(x = age, y = charges))+
+  geom_point()+
+  geom_smooth()+ # добавим линию тренда
+  ggtitle("Зависимость выплат от возроста")+
+  labs(x = "Возраст", "Величина выплат")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(size = 14)) 
+  
+```
+
+### Разбивка по статусу курения
+
+```{r scatter plot age and charges by smokers}
+raw_data %>%
+  ggplot(aes(x = age, y = charges, color = smoker, fill = smoker, group = smoker))+
+  geom_point()+
+  geom_smooth()+ # добавим линию тренда
+  ggtitle("Зависимость выплат от возроста")+
+  labs(x = "Возраст", "Величина выплат")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(size = 14)) 
+  
+```
+### Повторим анализ для BMI
+
+### scatter plot отношения переменных bmi и charges + линия тренда
+
+```{r scatter plot bmi and charges}
+raw_data %>%
+  ggplot(aes(x = bmi, y = charges))+
+  geom_point()+
+  geom_smooth()+ # добавим линию тренда
+  ggtitle("Зависимость выплат от ИМТ")+
+  labs(y = "Размер выплаты", x = "Индекс Массы Тела")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(size = 14)) 
+
+```
+
+### Разбивка по статусу курения
+
+```{r scatter plot bmi and charges by smokers}
+raw_data %>%
+  ggplot(aes(x = bmi, y = charges, color = smoker, fill = smoker, group = smoker))+
+  geom_point()+
+  geom_smooth()+ # добавим линию тренда
+  ggtitle("Зависимость выплат от ИМТ")+
+  labs(x = "Индекс Массы Тела", y = "Величина выплат")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(size = 14)) 
+  
+```
+### 11 - 13 Врпросы к данным
+
+
+11. каков процент мужчин и женщин у пациентов с выплатой более 40 тысяч?
+
+```{r}
+library(ggplot2)
+
+
+# Фильтруем данные и создаем таблицу
+pie_char_40 <- raw_data %>% filter(charges >= 40000)
+data_pie <- data.frame(table(pie_char_40$sex))
+
+# Создаем круговую диаграмму
+p <- ggplot(data_pie, aes(x = "", y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity") +
+  coord_polar(theta = "y") +
+  theme_minimal() +
+  labs(y = "", title = "Распределение пола у пациентов с выплатой более 40т.")+
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+# Добавляем метки с процентами
+p + geom_text(aes(label = paste0(Var1, " (", scales::percent(Freq / sum(Freq)), ")"), y = Freq), position = position_stack(vjust = 0.5))+
+  labs(fill = "Пол")
+
+
+```
+Аргументация выбора типа графика: так как есть две выраженные доли, такие как пол, я предположил что корректно их отобразить используя круговую диаграмму с указание процентов на случай если доли будут практически равными, что затруднит определение какая доля больше.
+
+12. Сравнение распределений: сравнить распределение значений затрат на медицинское обслуживание для двух групп: курящих и некурящих. Это может помочь определить, есть ли статистически значимые различия в затратах между этими двумя группами.
+
+```{r}
+# sample size
+sample_size = raw_data %>% group_by(smoker) %>% summarize(num=n())
+
+# Plot
+# sample size
+sample_size = raw_data %>% group_by(smoker) %>% summarize(num = n())
+
+# Plot
+raw_data %>%
+  left_join(sample_size) %>%
+  mutate(myaxis = paste0(smoker, "\n", "n=", num)) %>%
+  ggplot(aes(x = smoker, y = charges, fill = smoker)) +
+  geom_violin(width = 1.4) +
+  geom_boxplot(width = 0.1, color = "grey", alpha = 0.2) +
+  scale_fill_viridis(discrete = TRUE) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(size = 11)
+  ) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ggtitle("Распределение выплат от статуса курения") +
+  xlab("Статус кутения") + 
+  ylab("Величина выплат")
+
+```
+я решил "обогатить" боксплот добаввив виолин-плот.
+
+Скрипичная диаграмма предоставляет более полное представление о распределении данных по сравнению с простой гистограммой или боксплотом. Она позволяет видеть как основные статистики (медиана, квартили), так и форму и плотность распределения. Это полезно для сравнения нескольких групп данных или для исследования данных в контексте категориальных переменных.
+
+13. Каково распределение затрат на медицинское обслуживание (столбец "charges") для некурящих женщин (столбец "smoker" равен "no" и "sex" равен "female") в наших данных?
+
+```{r}
+# Создание подвыборки данных для некурящих женщин
+sub_data <- raw_data %>% filter(smoker == "no" & sex == "female")
+
+# Построение гистограммы
+ggplot(sub_data, aes(x = charges)) +
+  geom_histogram(fill = "lightblue", color = "black", bins = 20) +
+  labs(
+    title = "Распределение затрат на медицинское обслуживание (некурящие женщины)",
+    x = "Затраты",
+    y = "Частота"
+  ) +
+  theme_minimal()
+
+```
+
+Гистограмма была выбрана для визуализации, потому что она позволяет легко увидеть, как распределены затраты на медицинское обслуживание и определить характер распределения (например, нормальное, скошенное, мультимодальное и т. д.).

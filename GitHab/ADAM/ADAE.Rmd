@@ -1,0 +1,123 @@
+---
+title: "ADAE"
+author: "Anatoliy Sozontov"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+library(dplyr)
+```
+
+
+```{r adsl}
+# add ADSL
+adsl_0 <- read_excel("analysis/ADSL.xlsx") %>%
+  select(STUDYID, SUBJID, USUBJID, SITEID, TRTSEQP, TRTSEQPN, AP01SDT, AP01EDT, 
+         AP02SDT, AP02EDT, TRT01P, TRT02P, TRT01PN, TRT02PN)
+   
+
+```
+
+```{r raw data}
+ae_0 <- read_excel("raw/AE_ADVERSEEVENTS.xlsx")
+#rename all variables to control ADAE names
+names(ae_0) <- paste0("old_", names(ae_0))
+
+medDra_0 <- read_excel("raw/terms_translation.xlsx") %>%
+  rename(old_AEDECOD = PT, old_AEBODSYS = SOC)
+
+
+```
+
+```{r adae}
+
+adae_0 <- ae_0 %>%
+  mutate(AESEQ = as.numeric(old_AESEQ),
+         AETERM = old_AETERM)
+
+
+adae_1 <- left_join(adae_0, medDra_0, by = c("old_AEDECOD", "old_AEBODSYS")) %>%
+  mutate(AEBODSYS = paste(old_AEBODSYS, " (", SOCT, ")"),
+         AEDECOD = old_AEDECOD,
+         #start date
+         AESTDTC = old_AESTDTC,
+         ASTDT = format(as.Date(AESTDTC, format = "%Y-%m-%d"), "%d.%m.%Y"),
+         ASTDTF = ifelse(is.na(AESTDTC) | substr(AESTDTC, 1, 4) == "NA" | substr(AESTDTC, 6, 7) == "NA" | substr(AESTDTC, 9, 10) == "NA", 'Y',
+                         ifelse(substr(AESTDTC, 6, 7) == "NA", 'M',
+                                ifelse(substr(AESTDTC, 9, 10) == "NA", 'D', ""))),
+         #End date
+         AEENDTC = old_AEENDTC,
+         AENDT = format(as.Date(AEENDTC, format = "%Y-%m-%d"), "%d.%m.%Y"),
+         AENDTF = ifelse(is.na(AEENDTC) | substr(AEENDTC, 1, 4) == "NA" | substr(AEENDTC, 6, 7) == "NA" | substr(AEENDTC, 9, 10) == "NA", 'Y',
+                         ifelse(substr(AEENDTC, 6, 7) == "NA", 'M',
+                                ifelse(substr(AEENDTC, 9, 10) == "NA", 'D', ""))),
+         
+         AEENRTPT = old_AEENRTPT,
+         AEENRF = ifelse(AEENRTPT == "ONGOING", "ONGOING", ""),
+         ADURN = as.numeric(as.Date(ASTDT, format = "%d.%m.%Y") - as.Date(AENDT, format = "%d.%m.%Y")) + 1,
+         ADURU = "день",
+         AESER = ifelse(old_AESER == "Да", "Y", ifelse(old_AESER == "Нет", "N", NA))
+         
+  ) %>%
+  rename(SUBJID = old_SUBJID)
+
+
+# Add ADSL data
+
+adae_2 <- left_join(adae_1, adsl_0, by = "SUBJID") %>%
+  mutate(AREPIOD = ifelse(as.numeric(as.Date(AESTDTC)) >= as.numeric(as.Date(AP01SDT, format = "%d.%m.%Y")) &
+                          as.numeric(as.Date(AESTDTC)) <= as.numeric(as.Date(AP01EDT, format = "%d.%m.%Y")), 1, 
+                        ifelse(as.numeric(as.Date(AESTDTC)) >= as.numeric(as.Date(AP02SDT, format = "%d.%m.%Y")) &
+                          as.numeric(as.Date(AESTDTC)) <= as.numeric(as.Date(AP02EDT, format = "%d.%m.%Y")), 2, NA)),
+         APERIODC = ifelse(AREPIOD == 1 , "Период 1", ifelse(AREPIOD == 2 , "Период 2", NA)),
+         TRTEMFL = ifelse((as.numeric(as.Date(ASTDT, format = "%d.%m.%Y")) >= as.numeric(as.Date(AP01SDT, format = "%d.%m.%Y"))
+                         & as.numeric(as.Date(ASTDT, format = "%d.%m.%Y")) <= as.numeric(as.Date(AP01EDT, format = "%d.%m.%Y")))
+                        | (as.numeric(as.Date(ASTDT, format = "%d.%m.%Y")) >= as.numeric(as.Date(AP02SDT, format = "%d.%m.%Y"))
+                         & as.numeric(as.Date(ASTDT, format = "%d.%m.%Y")) <= as.numeric(as.Date(AP02EDT, format = "%d.%m.%Y"))) , "Y", NA),
+         PREFL = ifelse(as.numeric(as.Date(ASTDT, format = "%d.%m.%Y")) < as.numeric(as.Date(AP01SDT, format = "%d.%m.%Y")), "Y", NA),
+         TRTP = ifelse(AREPIOD == 1, TRT01P, ifelse(AREPIOD == 2, TRT02P, NA)),
+         TRTPN = ifelse(AREPIOD == 1, TRT01PN, ifelse(AREPIOD == 2, TRT02PN, NA)),
+         APHASE = case_when(  PREFL == "Y" ~ "Скрининг",
+                              TRTEMFL == "Y" ~ "Лечение",
+                              TRUE ~ NA_character_
+                            ),
+         ASEV = old_AESEV,
+         ASEVN = case_when(ASEV == "Легкое"  ~ 1,
+                           ASEV == "Среднее" ~ 2,
+                           ASEV == "Тяжелое" ~ 3),
+         AEREL = old_AEREL,
+         AERELN = case_when(AEREL == "Определенная"        ~ 1,
+                            AEREL == "Вероятная"           ~ 2,
+                            AEREL == "Возможная"           ~ 3,
+                            AEREL == "Сомнительная"        ~ 4,
+                            AEREL == "Условная"            ~ 5,
+                            AEREL == "Не классифицируемая" ~ 6,
+                            AEREL == "Не связано"          ~ 7),
+         RELGR1 = case_when(AEREL == "Определенная" | AEREL == "Вероятная" | AEREL == "Возможная" 
+                          | AEREL == "Сомнительная" | AEREL == "Условная" ~ "Связано",
+                            AEREL == NA | AEREL == "Не классифицируемая" ~ NA,
+                            AEREL == "Не связано" ~ "Не связано"),
+         RELGR1N = case_when(RELGR1 == "Не связано" ~ 0,
+                             RELGR1 == "Связано"    ~ 1,
+                             RELGR1 == NA           ~ 2),
+         AEACN = old_AEACN,
+         AERES = old_AEOUT,
+         AERESN = case_when(AERES == "Выздоровление без последствий" ~ 1, # error in code list
+                            AERES == "Стадия выздоровления"          ~ 2,
+                            AERES == "Без изменений"                 ~ 3,
+                            AERES == "Выздоровление с осложнениями"  ~ 4,
+                            AERES == "Смерть"                        ~ 5,
+                            AERES == "Не известно"                   ~ 6),
+         AECMFL = ifelse(old_AECONTRT == "Да", "Y", "N"))%>%
+  select(-c(1, 2, 4:23))
+  
+```
+
+
+if AECONTRT = 'Да' then 'Y', othertwise 'N'
+
+

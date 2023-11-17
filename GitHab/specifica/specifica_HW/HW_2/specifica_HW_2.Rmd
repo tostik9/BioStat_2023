@@ -1,0 +1,362 @@
+---
+title: "specifica_HW_2"
+author: "Anatoliy"
+date: "2023-11-15"
+output: html_document
+---
+
+```{r setup, echo=FALSE, message=FALSE}
+
+# detach(package:plyr)
+
+# devtools::install_github("vqv/ggbiplot")
+
+library(plotly)
+library(dplyr)
+library(rstatix)
+library(ggplot2) 
+library(reshape2) 
+library(ggpubr)
+library(corrplot)
+library(factoextra)
+library(pheatmap)
+#library(plyr)
+library(ggbiplot)
+library(FactoMineR)
+```
+
+
+
+```{r raw data, echo = FALSE}
+data_raw_0 <- readRDS("life_expectancy_data.RDS")
+```
+#### Задание 2
+
+```{r, message=FALSE}
+plot_ly(data = data_raw_0[(data_raw_0$`Sucide Rate` != 0) & (data_raw_0$`Urban population` != 0),],
+        x     = ~ `Sucide Rate`,
+        y     = ~ `Urban population`,
+        color = ~ continent,
+        marker = list(
+        size = 10
+      )
+)   %>%
+  layout(
+    title = 'Отношение Sucide Rate к Urban population',
+    yaxis = list(title = 'Urban population',
+                 zeroline = FALSE),  # Уберём выделения нулевых осей по y
+    xaxis = list(title = 'Sucide Rate',
+                 zeroline = FALSE)) # Уберём выделения нулевых осей по y
+```
+
+
+#### Задание 3
+```{r, message=FALSE}
+data_raw_0 %>% 
+  filter(continent == "Africa" |  continent == "Americas") %>%
+  group_by(continent) %>%
+  get_summary_stats(`Life expectancy`, type = "mean_sd")%>%
+  ungroup()
+
+data_raw_filtred <- data_raw_0 %>% filter(continent == "Africa" |  continent == "Americas") 
+```
+
+
+```{r}
+
+ggqqplot(data_raw_filtred[data_raw_filtred$`Life expectancy`,], 
+         x = "Life expectancy", facet.by = "continent")
+```
+
+Так как данные распределены "не нормально" предлагаю использовать параметрический тест, например U-тест Манна-Уитни
+
+```{r u-test, message=FALSE}
+
+library(rstatix)
+# Создадим два датафрейма с значениями Life expectancy для разных континентов
+
+group_af <- data_raw_0 %>% filter(continent == "Africa")   %>% select(`Life expectancy`) %>% pull(`Life expectancy`)
+group_am <- data_raw_0 %>% filter(continent == "Americas") %>% select(`Life expectancy`) %>% pull(`Life expectancy`)
+
+# Проведем тест Манна-Уитни
+
+p_valie_Utest <- wilcox.test(group_af, group_am)
+p_valie_Utest
+```
+
+```{r, message=FALSE}
+
+wilcox_test_result <- wilcox.test(`Life expectancy` ~ continent, data = data_raw_filtred) 
+ 
+# Визуализация результатов 
+ggplot(data_raw_filtred, aes(x = continent, y = `Life expectancy`, fill = continent)) + 
+  geom_boxplot() + 
+  geom_dotplot(binaxis = "y", stackdir = "center", position = "dodge") + 
+  stat_compare_means(test = "wilcox.test", label = "p.format", comparisons = list(c("Africa", "Americas"))) + 
+  labs(title = "Comparison of Life Expectancy between Africa and Americas") + 
+  theme_minimal()
+```
+
+#### Задание 4
+
+```{r,message=FALSE}
+
+# Выбираем все числовые колонки, кроме 'Year' 
+data_raw_0 <- data_raw_0 %>%
+  mutate(continent_num = case_when(continent == "Africa" ~ 1,
+                                   continent == "Americas" ~ 2,
+                                   TRUE ~ 0))
+
+numerical_data <- data_raw_0 %>% select(where(is.numeric)) %>% filter(continent_num > 0)
+numerical_data <- subset(numerical_data, select = -c(Year))
+ 
+# Проводим корреляционный анализ 
+correlation_matrix <- cor(numerical_data) 
+ 
+# Визуализация корреляций - используем heatmap 
+
+ 
+melted_correlation <- melt(correlation_matrix) 
+ 
+ggplot(melted_correlation, aes(x = Var1, y = Var2, fill = value)) + 
+  geom_tile(color = "white") + 
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1, 1), space = "Lab", name="Correlation") + 
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 8, hjust = 1)) + 
+  labs(title = "Correlation Heatmap") 
+ 
+```
+
+```{r}
+corrplot(correlation_matrix, method = 'ellipse', order = 'AOE', tl.cex = 0.5, tl.srt = 45)
+```
+
+#### Задание 5
+
+
+```{r}
+numerical_data_scaled <- scale(numerical_data)
+dist <- dist(numerical_data_scaled, 
+                        method = "euclidean"
+                        )
+as.matrix(dist)[1:6,1:6]
+```
+
+
+```{r}
+clear_hc <- hclust(d = dist, method = "ward.D2")
+
+fviz_dend(clear_hc, 
+          cex = 0.1)
+```
+
+#### Задание 6
+
+```{r}
+
+ 
+# Создаем heatmap с дендрограммой 
+pheatmap(numerical_data_scaled, 
+         show_rownames = FALSE, 
+         clustering_distance_rows = dist,
+         clustering_method = "ward.D2", 
+         cutree_rows = 3,
+         cutree_cols = length(colnames(numerical_data_scaled)),
+         angle_col = 45, 
+         main = "Dendrograms for clustering rows and columns with heatmap")
+```
+
+####  Задание 7
+
+Делаем PCA:
+
+```{r}
+full.pca <- prcomp(numerical_data_scaled, 
+                        scale = F)
+
+summary(full.pca)
+```
+```{r}
+fviz_eig(full.pca, addlabels = T, ylim = c(0, 50), ncp = 19)
+```
+
+```{r}
+fviz_pca_var(full.pca, 
+             select.var = list(contrib = 5), # Задаём число здесь 
+             col.var = "contrib")
+```
+
+Наибольший вклад в "коррелированность" данных вносят Life expectancy, Infant Mortality, HepB3 Immunization, DPT Immunization, Measles Immunization
+
+
+
+```{r}
+fviz_contrib(full.pca, choice = "var", axes = 1, top = 30)
+fviz_contrib(full.pca, choice = "var", axes = 2, top = 24)
+fviz_contrib(full.pca, choice = "var", axes = 3, top = 24) 
+fviz_contrib(full.pca, choice = "var", axes = 4, top = 24) 
+fviz_contrib(full.pca, choice = "var", axes = 5, top = 24) 
+```
+
+Рассмотрим Dim-1. В данных нет ярковыраженных переменных, которые бы брали на себя наибольших "вклад" для первой главной компоненты однако можно выделить группу переменных, которые отвечают за приблизительно 40% такого вклада:
+
+1. Life expectancy
+
+2. Basic sanitation services
+
+3. Infant Mortality
+
+4. Clean fuels and cooking technologies
+
+
+#### Задание 8, 9
+
+```{r}
+
+
+# Визуализируем с группировкой по continent (для этого переменную нужно сделать фактором)
+ggbiplot(full.pca, 
+         scale=0, 
+         groups = as.factor(numerical_data$continent_num), 
+         ellipse = T,
+         alpha = 0.2) +
+  theme_minimal()
+```
+
+Значащие группы 1 и 2 -- это Африка и Америки соответственно.
+
+Если мы доверяем построиным линиям то можно сформулировать следубщие гипотрезы:
+
+1. Страны с большим Sucide Rate более вероятно будут относиться к континенту африка
+
+2. Страны с больней Life expectancy более вероятно относятся к континантам Америки
+
+3. Rural population больше в странах Африки, Urban population больше в странах относящихся к Америке
+
+4. Показатель Clean fuels and cooking technologies и Basic sanitation services более выражены в странах Америки 
+
+и другие
+
+##### Замечание не получилось перевести в plotly :(
+
+
+```{r, message=FALSE,warning=FALSE}
+#install.packages(c("irlba", "Matrix"))
+
+library(tidymodels)
+library(embed)
+
+umap_prep <- recipe(~., data = numerical_data) %>% # "техническая" строка, нужная для работы фреймворка tidymodels
+  step_normalize(all_predictors()) %>% # нормируем все колонки
+  step_umap(all_predictors()) %>%  # проводим в UMAP. Используем стандартные настройки. Чтобы менять ключевой параметр (neighbors), нужно больше погружаться в машинное обучение
+  prep() %>%  # "техническая" строка, нужная для работы фреймворка tidymodels. Мы выполняем все степы выше 
+  juice() # Финальная строка - приводим результаты UMAP к стандартизированному датасету
+
+```
+
+#### Задание 10
+
+```{r}
+umap_prep %>%
+  ggplot(aes(UMAP1, UMAP2)) + #  # можно добавить раскраску 
+  geom_point(aes(color = as.factor(numerical_data$continent_num),
+                 shape = numerical_data$diabetes_ch), 
+             alpha = 0.7, size = 2) +
+  labs(color = NULL)+
+  ggtitle("Отображение данных в зависимости от Континента")
+```
+
+Сложно интерпритировать UMAP график. Однако если сравнивать его с PCA графиком, то можно заметить что:
+
+PCA: Основан на линейных преобразованиях и стремится сохранить максимальную дисперсию данных в новых компонентах (главных компонентах). 
+
+UMAP: Основан на нелинейных преобразованиях, стремится сохранить локальные структуры данных, предоставляя более низкоразмерное представление, сохраняя при этом глобальные структуры. 
+ 
+PCA: Сохраняет глобальные расстояния, что может привести к сжатию или искажению локальных структур данных. 
+
+UMAP: Стремится сохранять локальные расстояния, что делает его лучшим для визуализации кластеров и плотных областей в данных.
+
+#### Задание 11
+
+```{r}
+
+numerical_data_scaled_drop_1_5   <- numerical_data_scaled[, -c(1:5)]
+numerical_data_scaled_drop_6_10  <- numerical_data_scaled[, -c(6:10)]
+numerical_data_scaled_drop_11_15 <- numerical_data_scaled[, -c(11:15)]
+
+full_drop_5.pca <- prcomp(numerical_data_scaled_drop_1_5, 
+                        scale = F)
+
+summary(full_drop_5.pca)
+
+full_drop_10.pca <- prcomp(numerical_data_scaled_drop_6_10, 
+                        scale = F)
+
+summary(full_drop_10.pca)
+
+full_drop_15.pca <- prcomp(numerical_data_scaled_drop_11_15, 
+                        scale = F)
+
+summary(full_drop_15.pca)
+```
+
+Действительно Cumulative Proportion  отличается в зависимости от выбранных переменных. Отличия не большие +- 5 процентных пунктов в моем случае.
+
+
+#### Задание 12
+
+Давайте самостоятельно увидим, что снижение размерности – это группа
+методов, славящаяся своей неустойчивостью. Создайте две дамми-колонки о том:
+(1) принадлежит ли страна к африканскому континенту, (2) Океании. Проведите
+PCA вместе с ними, постройте биплоты. Проинтерпрейтируйте результат.
+Объясните, почему добавление дамми-колонок не совсем корректно в случае PCA
+нашего типа.
+
+```{r}
+data_raw_dummy <- data_raw_0 %>%
+  mutate(is_africa  = ifelse(continent== "Africa",   1, 0),
+         is_americas = ifelse(continent == "Americas", 1, 0)) %>%
+  filter(continent_num > 0)
+  
+  
+  data_raw_dummy <- subset(data_raw_dummy, select = -c(Year)) %>%
+  select(where(is.numeric))
+```
+
+```{r}
+
+data_raw_dummy_scaled <- scale(data_raw_dummy)
+dist <- dist(data_raw_dummy_scaled, 
+                        method = "euclidean"
+                        )
+as.matrix(dist)[1:6,1:6]
+
+dummy.pca <- prcomp(data_raw_dummy_scaled, 
+                        scale = F)
+summary(dummy.pca)
+```
+
+```{r}
+fviz_eig(dummy.pca, addlabels = T, ylim = c(0, 50), ncp = 19)
+```
+
+первая и последующие переменные стали "объяснять" меньший процент корреляции данных
+```{r}
+fviz_pca_var(dummy.pca, 
+             select.var = list(contrib = 5), # Задаём число здесь 
+             col.var = "contrib")
+```
+             
+первые 5 переменных не изменились но направление изменилось
+
+```{r}
+# Визуализируем с группировкой по continent (для этого переменную нужно сделать фактором)
+ggbiplot(dummy.pca, 
+         scale=0, 
+         groups = as.factor(data_raw_dummy$continent_num), 
+         ellipse = T,
+         alpha = 0.2) +
+  theme_minimal()
+```
+
+Добавив бинарные дамми колонки которые характеризуют наблюдения в зависимости от пренадлежности к материку: Африка или Америка(Я не стал  брать Океанию для консистенси с прошлыми графиками) похоже что таким образом мы "отделили" наблюдения одного материка от другого, но таким образом потеряли визуальное подтверждение "схожести" некоторых наблюдений (пересечение овалов на предыдущем ggbiplot)
